@@ -78,3 +78,10 @@ dotnet publish PS4Battery.csproj -c Release -o app
 
 - [Linux PlayStation HID 驱动](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c)
 - [SDL DualShock 4 HID 实现](https://github.com/libsdl-org/SDL/blob/main/src/joystick/hidapi/SDL_hidapi_ps4.c)
+
+## 打包便携发布版
+
+运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Package.ps1`。
+脚本按项目版本号生成 Windows x64 自包含 ZIP 和 SHA256 校验文件，输出到 `artifacts/`。
+包内含 .NET Desktop 运行环境，解压后直接运行 `PS4Battery.exe`；不需要 `Start.cmd`。
+打包前运行逻辑自检，不携带个人设置、诊断输出或调试符号。首次构建需要联网下载官方运行时包。
