@@ -13,7 +13,8 @@ public partial class Program
             SelfTest();
             AlertPolicy.Test();
             TestLights();
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip");
+            TestLightDelivery().GetAwaiter().GetResult();
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip, ignored initial write recovery, bounded startup retries, reconnect, failure backoff and cache recovery");
             return 0;
         }
         if (args.Contains("--once")) return ConsoleMain(args).GetAwaiter().GetResult();

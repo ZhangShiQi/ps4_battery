@@ -64,8 +64,20 @@ public partial class Program
         return packet;
     }
 
-    sealed class LightWriter(Device device) : IDisposable
+    sealed class LightWriter : IDisposable
     {
+        readonly Device device;
+        readonly Func<DateTime> now;
+        readonly Func<byte[], CancellationToken, Task> testSend;
+        static readonly int[] ReapplySeconds = { 1, 3, 6, 10 };
+        DateTime? firstSuccess;
+        int reapplyIndex;
+        public LightWriter(Device device, Func<DateTime> clock = null, Func<byte[], CancellationToken, Task> send = null)
+        {
+            this.device = device;
+            now = clock ?? (() => DateTime.UtcNow);
+            testSend = send;
+        }
         FileStream output;
         int? sent;
         Color? target;
@@ -76,20 +88,25 @@ public partial class Program
         {
             var settings = Volatile.Read(ref lightSettings);
             if (settings == null) return;
+            var time = now();
             var preview = Volatile.Read(ref previewColor);
-            var color = preview != null && preview.Expires > DateTime.UtcNow ? preview.Color : LightColor(settings, r);
+            var color = preview != null && preview.Expires > time ? preview.Color : LightColor(settings, r);
             if (color != null && target != color)
             {
                 target = color; from = sent.HasValue ? Color.FromArgb(sent.Value) : color.Value;
-                transitionStart = DateTime.UtcNow;
+                transitionStart = time;
             }
             if (color != null && (settings.Mode == "gradient" || preview != null))
-                color = Blend(from, color.Value, Math.Clamp((DateTime.UtcNow - transitionStart).TotalMilliseconds / 600, 0, 1));
-            if (color == null || sent == color.Value.ToArgb() || DateTime.UtcNow < nextAttempt) return;
-            nextAttempt = DateTime.UtcNow.AddMilliseconds(50);
+                color = Blend(from, color.Value, Math.Clamp((time - transitionStart).TotalMilliseconds / 600, 0, 1));
+            // A successful host write is not an acknowledgement of the physical lightbar.
+            // Reassert a few times while connection initialization settles, then stop.
+            bool reapply = firstSuccess.HasValue && reapplyIndex < ReapplySeconds.Length &&
+                (time - firstSuccess.Value).TotalSeconds >= ReapplySeconds[reapplyIndex];
+            if (color == null || (sent == color.Value.ToArgb() && !reapply) || time < nextAttempt) return;
+            nextAttempt = time.AddMilliseconds(50);
             try
             {
-                if (output == null)
+                if (testSend == null && output == null)
                 {
                     var handle = CreateFile(device.Path, 0x40000000, 3, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero);
                     if (handle.IsInvalid)
@@ -101,8 +118,14 @@ public partial class Program
                 }
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 timeout.CancelAfter(2000);
-                await output.WriteAsync(LightPacket(device.Length > 64, color.Value), timeout.Token);
+                var packet = LightPacket(device.Length > 64, color.Value);
+                if (testSend != null) await testSend(packet, timeout.Token);
+                else await output.WriteAsync(packet, timeout.Token);
                 sent = color.Value.ToArgb();
+                firstSuccess ??= time;
+                // Collapse missed intervals instead of flooding the device after a stall.
+                while (reapplyIndex < ReapplySeconds.Length &&
+                    (time - firstSuccess.Value).TotalSeconds >= ReapplySeconds[reapplyIndex]) reapplyIndex++;
                 lightStatus = $"灯条：已发送 #{color.Value.R:X2}{color.Value.G:X2}{color.Value.B:X2}";
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
@@ -110,7 +133,8 @@ public partial class Program
             {
                 lightStatus = "灯条控制失败：" + e.Message;
                 output?.Dispose(); output = null;
-                nextAttempt = DateTime.UtcNow.AddSeconds(10);
+                sent = null; // The next target may equal an old cached color; still retry it.
+                nextAttempt = now().AddSeconds(10);
             }
         }
         public void Dispose() => output?.Dispose();
