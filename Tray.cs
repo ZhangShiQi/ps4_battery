@@ -14,8 +14,9 @@ public partial class Program
             AlertPolicy.Test();
             TestLights();
             TestInput();
+            TestPose();
             TestLightDelivery().GetAwaiter().GetResult();
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: controller inputs, signed motion sensors, touch, motor-only packets, axis normalization, protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip, ignored initial write recovery, bounded startup retries, reconnect, failure backoff and cache recovery, late color overwrite recovery in all modes, keep-light disable and settings migration");
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: pose calibration, quaternion rotation, sensor timestamp wrap, duplicate samples, reconnect reset, gravity correction, controller inputs, signed motion sensors, touch, motor-only packets, axis normalization, protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip, ignored initial write recovery, bounded startup retries, reconnect, failure backoff and cache recovery, late color overwrite recovery in all modes, keep-light disable and settings migration");
             return 0;
         }
         if (args.Contains("--once")) return ConsoleMain(args).GetAwaiter().GetResult();
@@ -143,7 +144,7 @@ public partial class Program
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
                 catch (Exception e) { issue = e.Message; }
-                finally { latest = null; inputState = null; connectedDevice = null; StopRumble(); lightStatus = "灯条：等待连接"; }
+                finally { latest = null; inputState = null; poseReading = null; connectedDevice = null; StopRumble(); lightStatus = "灯条：等待连接"; }
                 try { await Task.Delay(3000, stop.Token); }
                 catch (OperationCanceledException) { break; }
             }

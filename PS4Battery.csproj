@@ -5,7 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PS4Battery</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>PS4 Battery</Product>
     <Description>DualShock 4 battery monitor and lightbar controller for Windows</Description>
   </PropertyGroup>

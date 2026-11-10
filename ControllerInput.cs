@@ -7,6 +7,7 @@ public partial class Program
         byte L2, byte R2, byte Buttons1, byte Buttons2, byte Buttons3,
         short GX, short GY, short GZ, short AX, short AY, short AZ, TouchPoint Touch1, TouchPoint Touch2)
     {
+        public ushort SensorTick { get; init; }
         public int Hat => Buttons1 & 15;
         public bool Pressed(string name) => name switch
         {
@@ -37,7 +38,8 @@ public partial class Program
             a = Read(t); c = Read(t + 4);
         }
         return new(received, bt, b[o], b[o + 1], b[o + 2], b[o + 3], b[o + 7], b[o + 8],
-            b[o + 4], b[o + 5], b[o + 6], S(12), S(14), S(16), S(18), S(20), S(22), a, c);
+            b[o + 4], b[o + 5], b[o + 6], S(12), S(14), S(16), S(18), S(20), S(22), a, c)
+            { SensorTick = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(o + 9, 2)) };
     }
     static double Axis(byte value) => value >= 128 ? (value - 128) / 127.0 : (value - 128) / 128.0;
     static byte[] MotorPacket(bool bt, byte left, byte right)
@@ -101,10 +103,11 @@ public partial class Program
             b[o] = 0; b[o + 1] = 128; b[o + 2] = 255; b[o + 3] = 128;
             b[o + 4] = 0xf1; b[o + 5] = 255; b[o + 6] = 3; b[o + 7] = 255; b[o + 8] = 100;
             b[o + 12] = 0xfe; b[o + 13] = 0xff; b[o + 18] = 0; b[o + 19] = 32;
+            b[o + 9] = 0x34; b[o + 10] = 0x12;
             b[o + 32] = 1; int t = o + 34;
             b[t] = 7; b[t + 1] = 0x80; b[t + 2] = 0x37; b[t + 3] = 0x20; b[t + 4] = 0x80;
             var s = ParseInput(b, bt, DateTime.UtcNow);
-            if (s.GX != -2 || s.AX != 8192 || s.Touch1.X != 1920 || s.Touch1.Y != 515 || s.Touch2.Active ||
+            if (s.SensorTick != 0x1234 || s.GX != -2 || s.AX != 8192 || s.Touch1.X != 1920 || s.Touch1.Y != 515 || s.Touch2.Active ||
                 !s.Pressed("↑") || !s.Pressed("→") || s.Pressed("↓") || !s.Pressed("L3") || !s.Pressed("触摸板") || s.L2 != 255)
                 throw new Exception("Input report decoding");
             b[o + 32] = 0; if (ParseInput(b, bt, DateTime.UtcNow).Touch1.Active) throw new Exception("Stale touch");

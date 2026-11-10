@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using System.Numerics;
 
 public partial class Program
 {
@@ -25,6 +26,10 @@ public partial class Program
             Button("停止震动", StopRumble);
             Button("重置测试记录", canvas.Reset);
             Button("陀螺仪显示归零", canvas.ZeroGyro);
+            Button("姿态归零", canvas.ZeroPose);
+            var poseToggle = new CheckBox { Text = "3D 姿态", Checked = true, AutoSize = true, ForeColor = Color.White, Margin = new Padding(8, 8, 0, 0) };
+            poseToggle.CheckedChanged += (_, _) => { canvas.ShowPose = poseToggle.Checked; canvas.Invalidate(); };
+            toolbar.Controls.Add(poseToggle);
             Controls.Add(canvas); Controls.Add(toolbar);
             refresh.Tick += (_, _) => canvas.Tick(); refresh.Start();
             FormClosing += (_, _) => StopRumble();
@@ -42,6 +47,16 @@ public partial class Program
             double maxLeft, maxRight;
             int maxL2, maxR2;
             bool zeroed;
+            public bool ShowPose = true;
+            PoseReading pose;
+            Quaternion poseOrigin = Quaternion.Identity;
+            int poseSessionId = -1;
+            public void ZeroPose()
+            {
+                var current = Volatile.Read(ref poseReading);
+                if (current == null || (DateTime.UtcNow - current.Received).TotalSeconds > 1) return;
+                poseOrigin = current.Rotation; poseSessionId = current.Session; Invalidate();
+            }
             public TestCanvas() { DoubleBuffered = true; ResizeRedraw = true; }
             public void Reset() { seen.Clear(); history.Clear(); maxLeft = maxRight = 0; maxL2 = maxR2 = 0; bias = new float[3]; zeroed = false; Invalidate(); }
             public void ZeroGyro()
@@ -51,6 +66,9 @@ public partial class Program
             }
             public void Tick()
             {
+                pose = Volatile.Read(ref poseReading);
+                if (pose == null || (DateTime.UtcNow - pose.Received).TotalSeconds > 1) { pose = null; poseSessionId = -1; }
+                else if (pose.Session != poseSessionId) { poseOrigin = pose.Rotation; poseSessionId = pose.Session; }
                 var next = Volatile.Read(ref inputState);
                 if (next == null || (DateTime.UtcNow - next.Received).TotalSeconds > 1)
                 { state = null; history.Clear(); bias = new float[3]; zeroed = false; Invalidate(); return; }
@@ -106,6 +124,18 @@ public partial class Program
                 bool online = state != null;
                 DrawText(g, "DUALSHOCK 4  /  功能测试", 18, 10, 23);
                 DrawText(g, online ? $"{(state.Bluetooth ? "蓝牙" : "USB")} · 报告 {state.Received.ToLocalTime():HH:mm:ss.fff} · {(latest?.Text ?? "")}" : "未连接或数据已过期 · 按 PS 键连接手柄", 18, 43, 12, online ? Accent : Color.Orange);
+                if (ShowPose)
+                {
+                    Card(g, 16, 76, 530, 440, "3D 手柄姿态 / 随手柄转动");
+                    var rotation = pose == null ? Quaternion.Identity : Quaternion.Normalize(Quaternion.Conjugate(poseOrigin) * pose.Rotation);
+                    DrawPoseModel(g, rotation, new RectangleF(30, 128, 502, 300), state);
+                    DrawText(g, pose == null ? "等待手柄六轴数据…" : pose.Calibrated ? "实时跟随 · 已读取出厂标定" : "实时跟随 · 使用默认灵敏度（未读取出厂标定）", 36, 435, 12, pose == null ? Muted : Accent);
+                    DrawText(g, "黄色 = 按下 · 摇杆随动 · L2/R2 填充 = 力度 · 触摸点实时显示", 36, 458, 12, Muted);
+                    DrawText(g, "姿态归零：将当前方向设为正面；取消 3D 可查看按键", 36, 479, 12, Muted);
+                    DrawText(g, "水平朝向可能缓慢漂移，归零即可重新对齐", 36, 498, 11, Muted);
+                }
+                else
+                {
                 Card(g, 16, 76, 530, 440, "手柄可视化");
                 using (var path = new GraphicsPath())
                 {
@@ -126,6 +156,7 @@ public partial class Program
                 Stick(g, 350, 336, state?.RX ?? 128, state?.RY ?? 128, "", online, 30);
                 Key(g, "L3", 191, 381); Key(g, "R3", 330, 381); Key(g, "PS", 262, 311, 40, true);
                 DrawText(g, $"已触发 {seen.Count}/{Names.Length} 项  ·  填充高亮 = 正在按下 / 描边 = 曾按下", 40, 485, 12, Muted);
+                }
                 Card(g, 562, 76, 300, 230, "摇杆 / 中心偏移");
                 Stick(g, 640, 176, state?.LX ?? 128, state?.LY ?? 128, "左摇杆", online, 48);
                 Stick(g, 782, 176, state?.RX ?? 128, state?.RY ?? 128, "右摇杆", online, 48);

@@ -110,6 +110,9 @@ public partial class Program
         bool requested = false;
         string previous = null;
         using var light = new LightWriter(device);
+        var calibration = MotionCalibration.Read(h, bt);
+        var pose = new PoseFilter();
+        int session = Interlocked.Increment(ref poseSession);
         connectedDevice = device;
         while (!stop.IsCancellationRequested)
         {
@@ -123,7 +126,10 @@ public partial class Program
             string state = Decode(b, n, bt);
             if (state != null)
             {
-                Volatile.Write(ref inputState, ParseInput(b, bt, DateTime.UtcNow));
+                var input = ParseInput(b, bt, DateTime.UtcNow);
+                pose.Update(calibration.Gyro(input), calibration.Accel(input), input.SensorTick, input.Received);
+                Volatile.Write(ref poseReading, new PoseReading(pose.Rotation, input.Received, calibration.Valid, session));
+                Volatile.Write(ref inputState, input);
                 lastValid = DateTime.UtcNow;
                 byte raw = b[bt ? 32 : 30];
                 latest = new Reading((raw & 15) <= 10 ? raw & 15 : ((raw & 31) == 27 ? 10 : -1),
