@@ -12,6 +12,8 @@ public partial class Program
         readonly ComboBox mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
         readonly Button fixedColor = ColorButton(), normalColor = ColorButton(), lowColor = ColorButton(), chargingColor = ColorButton();
         readonly CheckBox enable = new() { Text = "启用低电量提醒", AutoSize = true };
+        readonly NumericUpDown lightRefresh = new() { Minimum = 1, Maximum = 60, Value = 5, Width = 100 };
+        readonly CheckBox keepLight = new() { Text = "保持灯条设置（定时重新应用当前颜色）", AutoSize = true };
         readonly CheckBox criticalEnable = new() { Text = "启用电量过低的第二次提醒", AutoSize = true };
         readonly NumericUpDown low = new() { Minimum = 10, Maximum = 90, Increment = 10, Width = 100 };
         readonly NumericUpDown critical = new() { Minimum = 10, Maximum = 80, Increment = 10, Width = 100 };
@@ -70,6 +72,9 @@ public partial class Program
             mode.Items.AddRange(new object[] { "固定颜色", "随电量变色", "关闭灯条", "电量渐变曲线" });
             Row(lights, "灯条模式", mode); Row(lights, "固定颜色", fixedColor);
             Row(lights, "正常电量颜色", normalColor); Row(lights, "低电量颜色", lowColor); Row(lights, "充电颜色", chargingColor);
+            lights.Controls.Add(keepLight);
+            Row(lights, "灯条刷新间隔（秒）", lightRefresh);
+            lights.Controls.Add(Note("用于恢复被重置或覆盖的灯色。如果其他软件也控制灯条，建议只保留一个控制来源。"));
             lights.Controls.Add(Note("自动变色使用“电量提醒”中的低电量阈值，即使关闭弹窗提醒也生效。\n选择后点击“应用”生效。Steam 等程序可能覆盖灯色。"));
             var curve = Page(tabs, "颜色曲线");
             curve.Controls.Add(Note("拖动节点调整电量位置，双击节点或点击“节点颜色”选色。\n0% 和 100% 为固定端点；节点之间自动渐变，最多 16 个节点。"));
@@ -97,6 +102,8 @@ public partial class Program
             criticalEnable.CheckedChanged += (_, _) => { UpdateEnabled(); message.Text = "尚未应用"; };
             low.ValueChanged += (_, _) => message.Text = "尚未应用";
             critical.ValueChanged += (_, _) => message.Text = "尚未应用";
+            keepLight.CheckedChanged += (_, _) => { lightRefresh.Enabled = keepLight.Checked; message.Text = "尚未应用"; };
+            lightRefresh.ValueChanged += (_, _) => message.Text = "尚未应用";
             LoadValues();
             refresh.Tick += (_, _) => { live.Text = getStatus(); gradient.Pulse(); }; refresh.Start(); live.Text = getStatus();
             FormClosed += (_, _) => { gradient.StopPreview(); refresh.Dispose(); };
@@ -104,6 +111,8 @@ public partial class Program
         void LoadValues()
         {
             baseline = lightSettings;
+            keepLight.Checked = baseline.KeepLight;
+            lightRefresh.Value = baseline.LightRefreshSeconds; lightRefresh.Enabled = keepLight.Checked;
             gradient.Stops = baseline.Stops;
             mode.SelectedIndex = baseline.Mode == "fixed" ? 0 : baseline.Mode == "battery" ? 1 : baseline.Mode == "gradient" ? 3 : 2;
             SetColor(fixedColor, Color.FromArgb(baseline.R, baseline.G, baseline.B));
@@ -123,7 +132,7 @@ public partial class Program
             var c = (Color)fixedColor.Tag;
             var value = baseline with { Mode = new[] { "fixed", "battery", "off", "gradient" }[mode.SelectedIndex], R = c.R, G = c.G, B = c.B,
                 Alerts = enable.Checked, Low = (int)low.Value, Critical = (int)critical.Value, CriticalEnabled = criticalEnable.Checked,
-                NormalColor = Value(normalColor), LowColor = Value(lowColor), ChargingColor = Value(chargingColor), Stops = gradient.Stops };
+                NormalColor = Value(normalColor), LowColor = Value(lowColor), ChargingColor = Value(chargingColor), Stops = gradient.Stops, KeepLight = keepLight.Checked, LightRefreshSeconds = (int)lightRefresh.Value };
             if (!ValidSettings(value)) { MessageBox.Show(this, "阈值必须是 10 的倍数，且第二次提醒阈值必须低于低电量阈值。", "检查提醒范围"); return; }
             if (save(value))
             {

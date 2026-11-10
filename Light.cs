@@ -3,7 +3,7 @@ using System.Text.Json;
 
 public partial class Program
 {
-    record LightSettings(string Mode = "battery", int R = 128, int G = 0, int B = 255, bool Alerts = true, int Low = 20, int Critical = 10, bool CriticalEnabled = true, int NormalColor = 0x00FF00, int LowColor = 0xFF0000, int ChargingColor = 0x0000FF, ColorStop[] Stops = null);
+    record LightSettings(string Mode = "battery", int R = 128, int G = 0, int B = 255, bool Alerts = true, int Low = 20, int Critical = 10, bool CriticalEnabled = true, int NormalColor = 0x00FF00, int LowColor = 0xFF0000, int ChargingColor = 0x0000FF, ColorStop[] Stops = null, bool KeepLight = true, int LightRefreshSeconds = 5);
     record ColorStop(int Percent, int Color);
     record PreviewColor(Color Color, DateTime Expires);
     static PreviewColor previewColor;
@@ -26,7 +26,7 @@ public partial class Program
     static string lightStatus = "灯条：等待连接";
     static readonly string SettingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     static Color Rgb(int value) => Color.FromArgb((value >> 16) & 255, (value >> 8) & 255, value & 255);
-    static bool ValidSettings(LightSettings s) => ValidStops(s.Stops) && s.Low >= 10 && s.Low <= 90 && s.Low % 10 == 0 &&
+    static bool ValidSettings(LightSettings s) => ValidStops(s.Stops) && s.LightRefreshSeconds >= 1 && s.LightRefreshSeconds <= 60 && s.Low >= 10 && s.Low <= 90 && s.Low % 10 == 0 &&
         s.Critical >= 10 && s.Critical <= 80 && s.Critical % 10 == 0 && (!s.CriticalEnabled || s.Critical < s.Low) &&
         s.NormalColor >= 0 && s.NormalColor <= 0xffffff && s.LowColor >= 0 && s.LowColor <= 0xffffff && s.ChargingColor >= 0 && s.ChargingColor <= 0xffffff;
 
@@ -71,6 +71,7 @@ public partial class Program
         readonly Func<byte[], CancellationToken, Task> testSend;
         static readonly int[] ReapplySeconds = { 1, 3, 6, 10 };
         DateTime? firstSuccess;
+        DateTime? lastSuccess;
         int reapplyIndex;
         public LightWriter(Device device, Func<DateTime> clock = null, Func<byte[], CancellationToken, Task> send = null)
         {
@@ -99,9 +100,10 @@ public partial class Program
             if (color != null && (settings.Mode == "gradient" || preview != null))
                 color = Blend(from, color.Value, Math.Clamp((time - transitionStart).TotalMilliseconds / 600, 0, 1));
             // A successful host write is not an acknowledgement of the physical lightbar.
-            // Reassert a few times while connection initialization settles, then stop.
+            // Reassert during initialization, and optionally keep the chosen color afterwards.
             bool reapply = firstSuccess.HasValue && reapplyIndex < ReapplySeconds.Length &&
                 (time - firstSuccess.Value).TotalSeconds >= ReapplySeconds[reapplyIndex];
+            reapply |= settings.KeepLight && lastSuccess.HasValue && (time - lastSuccess.Value).TotalSeconds >= settings.LightRefreshSeconds;
             if (color == null || (sent == color.Value.ToArgb() && !reapply) || time < nextAttempt) return;
             nextAttempt = time.AddMilliseconds(50);
             try
@@ -122,11 +124,14 @@ public partial class Program
                 if (testSend != null) await testSend(packet, timeout.Token);
                 else await output.WriteAsync(packet, timeout.Token);
                 sent = color.Value.ToArgb();
+                lastSuccess = time;
                 firstSuccess ??= time;
                 // Collapse missed intervals instead of flooding the device after a stall.
                 while (reapplyIndex < ReapplySeconds.Length &&
                     (time - firstSuccess.Value).TotalSeconds >= ReapplySeconds[reapplyIndex]) reapplyIndex++;
-                lightStatus = $"灯条：已发送 #{color.Value.R:X2}{color.Value.G:X2}{color.Value.B:X2}";
+                string reason = preview != null && preview.Expires > time ? "模拟预览" :
+                    r.Charging && (settings.Mode == "battery" || settings.Mode == "gradient") ? "充电颜色" : "当前模式";
+                lightStatus = $"灯条：已发送 #{color.Value.R:X2}{color.Value.G:X2}{color.Value.B:X2}（{reason}，{time.ToLocalTime():HH:mm:ss}）";
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or OperationCanceledException)
