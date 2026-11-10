@@ -46,7 +46,7 @@ public partial class Program
             row.Controls.Add(control); page.Controls.Add(row);
         }
 
-        public SettingsWindow(Func<LightSettings, bool> save, Func<string> getStatus, Action test)
+        public SettingsWindow(Func<LightSettings, bool> save, Func<string> getStatus, Action test, Action controllerTest)
         {
             this.save = save; this.getStatus = getStatus;
             Text = "PS4 手柄 · 设置"; ClientSize = new Size(680, 720); MinimumSize = new Size(680, 580);
@@ -67,6 +67,8 @@ public partial class Program
             startup.CheckedChanged += (_, _) => message.Text = "尚未应用";
             var overview = Page(tabs, "状态");
             overview.Controls.Add(Note("当前手柄")); overview.Controls.Add(live);
+            var testController = new Button { Text = "打开手柄功能测试", AutoSize = true };
+            testController.Click += (_, _) => controllerTest(); overview.Controls.Add(testController);
             overview.Controls.Add(Note("后台持续接收数据，界面每秒更新；断线后每 3 秒重连。\n电量按约 10% 的区间报告，例如图标 20 表示 20–29%。\n关闭设置窗口后，托盘程序仍会继续运行。"));
             var lights = Page(tabs, "灯条");
             mode.Items.AddRange(new object[] { "固定颜色", "随电量变色", "关闭灯条", "电量渐变曲线" });

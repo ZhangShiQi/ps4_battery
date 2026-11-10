@@ -9,6 +9,8 @@ public partial class Program
     record Device(string Path, ushort Product, int Length);
     record Reading(int Level, bool Charging, string Text, DateTime Received);
     static Reading latest;
+    static InputState inputState;
+    static Device connectedDevice;
     static void Log(string text) => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {text}");
 
     static IEnumerable<Device> Find()
@@ -108,6 +110,7 @@ public partial class Program
         bool requested = false;
         string previous = null;
         using var light = new LightWriter(device);
+        connectedDevice = device;
         while (!stop.IsCancellationRequested)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -120,6 +123,7 @@ public partial class Program
             string state = Decode(b, n, bt);
             if (state != null)
             {
+                Volatile.Write(ref inputState, ParseInput(b, bt, DateTime.UtcNow));
                 lastValid = DateTime.UtcNow;
                 byte raw = b[bt ? 32 : 30];
                 latest = new Reading((raw & 15) <= 10 ? raw & 15 : ((raw & 31) == 27 ? 10 : -1),

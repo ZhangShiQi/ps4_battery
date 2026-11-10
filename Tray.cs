@@ -13,8 +13,9 @@ public partial class Program
             SelfTest();
             AlertPolicy.Test();
             TestLights();
+            TestInput();
             TestLightDelivery().GetAwaiter().GetResult();
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip, ignored initial write recovery, bounded startup retries, reconnect, failure backoff and cache recovery, late color overwrite recovery in all modes, keep-light disable and settings migration");
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "test-result.txt"), "PASS: controller inputs, signed motion sensors, touch, motor-only packets, axis normalization, protocol parsing, alerts, light modes, BT/USB LED packets, output CRC, settings roundtrip, ignored initial write recovery, bounded startup retries, reconnect, failure backoff and cache recovery, late color overwrite recovery in all modes, keep-light disable and settings migration");
             return 0;
         }
         if (args.Contains("--once")) return ConsoleMain(args).GetAwaiter().GetResult();
@@ -72,6 +73,14 @@ public partial class Program
         int ticks;
 
         SettingsWindow settingsWindow;
+        ControllerTestWindow testWindow;
+        void OpenTest()
+        {
+            if (testWindow == null || testWindow.IsDisposed) testWindow = new ControllerTestWindow();
+            testWindow.Show();
+            if (testWindow.WindowState == FormWindowState.Minimized) testWindow.WindowState = FormWindowState.Normal;
+            testWindow.Activate();
+        }
         public BatteryTray(bool smoke, bool showSettings = false)
         {
             lightSettings = LoadLights();
@@ -98,6 +107,7 @@ public partial class Program
             menu.Items.Add(notifications);
             notifications.Click += (_, _) => SetLight(lightSettings with { Alerts = notifications.Checked });
             menu.Items.Add("设置…", null, (_, _) => OpenSettings());
+            menu.Items.Add("手柄功能测试…", null, (_, _) => OpenTest());
             menu.Items.Add("测试提醒", null, (_, _) => Notify("提醒测试", "低电量时将在这里提醒你。Windows 勿扰模式可能隐藏通知。"));
             menu.Items.Add("查看状态", null, (_, _) => ShowStatus());
             menu.Items.Add(new ToolStripSeparator());
@@ -118,6 +128,7 @@ public partial class Program
             worker = Task.Run(Watch);
             timer.Start();
             if (showSettings) OpenSettings();
+            if (Environment.GetCommandLineArgs().Contains("--test-controller")) OpenTest();
         }
 
         async Task Watch()
@@ -132,7 +143,7 @@ public partial class Program
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
                 catch (Exception e) { issue = e.Message; }
-                finally { latest = null; lightStatus = "灯条：等待连接"; }
+                finally { latest = null; inputState = null; connectedDevice = null; StopRumble(); lightStatus = "灯条：等待连接"; }
                 try { await Task.Delay(3000, stop.Token); }
                 catch (OperationCanceledException) { break; }
             }
@@ -192,7 +203,7 @@ public partial class Program
         {
             if (settingsWindow == null || settingsWindow.IsDisposed)
                 settingsWindow = new SettingsWindow(SetLight, () => status.Text + "\n" + updated.Text + "\n" + lightStatus,
-                    () => Notify("提醒测试", "低电量提醒可以正常发送。Windows 勿扰模式可能隐藏弹窗。"));
+                    () => Notify("提醒测试", "低电量提醒可以正常发送。Windows 勿扰模式可能隐藏弹窗。"), OpenTest);
             settingsWindow.Show();
             if (settingsWindow.WindowState == FormWindowState.Minimized) settingsWindow.WindowState = FormWindowState.Normal;
             settingsWindow.Activate();
@@ -219,6 +230,8 @@ public partial class Program
 
         protected override void ExitThreadCore()
         {
+            testWindow?.Close(); StopRumble();
+            try { rumbleTask?.Wait(1500); } catch { }
             settingsWindow?.Close(); timer.Stop(); timer.Dispose(); stop.Cancel();
             tray.Visible = false; tray.ContextMenuStrip.Dispose(); tray.Dispose(); currentIcon.Dispose();
             base.ExitThreadCore();
